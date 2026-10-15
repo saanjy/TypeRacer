@@ -11,7 +11,7 @@ import { THEMES } from '../constants';
 import { ThemeId, SoundTheme } from '../types';
 import { storageService } from '../services/storageService';
 import { soundService } from '../services/soundService';
-import { F1CarLogo } from './F1CarLogo';
+import { TRLogo } from './TRLogo';
 
 export const Layout: React.FC = () => {
   const [config, setConfig] = useState(() => storageService.getConfig());
@@ -28,6 +28,12 @@ export const Layout: React.FC = () => {
     document.documentElement.style.setProperty('--error-color', themeDef.error);
     document.body.style.backgroundColor = themeDef.bg;
     document.body.style.color = themeDef.text;
+    // Dynamically update favicon with identical outline-free 'tr' logo in active theme primary color
+    const favicon = document.querySelector<HTMLLinkElement>("link[rel*='icon']");
+    if (favicon) {
+      const pColor = encodeURIComponent(themeDef.primary);
+      favicon.href = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 28'%3E%3Cpath d='M 11 5 V 18.5 C 11 20.6 12.4 22 14.5 22 H 16' stroke='${pColor}' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='6.5' y1='11' x2='15.5' y2='11' stroke='${pColor}' stroke-width='2.8' stroke-linecap='round'/%3E%3Cpath d='M 20.5 11 V 22' stroke='${pColor}' stroke-width='2.8' stroke-linecap='round'/%3E%3Cpath d='M 20.5 14.5 C 21.8 11.8 24.2 11 27 11.5' stroke='${pColor}' stroke-width='2.8' stroke-linecap='round'/%3E%3C/svg%3E`;
+    }
   }, [config.theme]);
 
   const activeTheme = THEMES[config.theme] || THEMES['velocity-amber'];
@@ -51,19 +57,25 @@ export const Layout: React.FC = () => {
     <div className="min-h-screen flex flex-col font-mono text-sm selection:bg-brand-primary selection:text-black antialiased">
       {/* Top Header - Fully responsive across Mobile, Tablet, and Desktop */}
       <header className="w-full max-w-5xl mx-auto px-3 sm:px-6 py-3 sm:py-5 flex items-center justify-between gap-2 border-b border-white/5 sm:border-transparent">
-        {/* F1 Car Logo + TypeRacer Title */}
-        <div className="flex items-center gap-2 sm:gap-3 select-none">
-          <F1CarLogo className="w-8 h-8 sm:w-10 sm:h-10" />
-          <div className="flex flex-col">
-            <div className="text-xl sm:text-2xl font-black tracking-tight leading-none flex items-center gap-0.5">
-              <span style={{ color: 'var(--active-color)' }}>Type</span>
-              <span style={{ color: 'var(--primary-color)' }}>Racer</span>
-            </div>
-            <span className="hidden sm:inline text-[10px] uppercase tracking-wider text-brand-text font-semibold opacity-85 mt-1">
-              Test your typing speed & accuracy
-            </span>
-          </div>
-        </div>
+        {/* Just 'tr' in logo, removed other text */}
+        <a
+          href="#/"
+          onClick={(e) => {
+            if (window.location.hash === '#/' || window.location.hash === '') {
+              // Trigger quick restart if already on home
+              const restartBtn = document.querySelector<HTMLButtonElement>('button[title*="Restart"], button[aria-label*="restart"]');
+              if (restartBtn) {
+                e.preventDefault();
+                restartBtn.click();
+              }
+            }
+          }}
+          className="flex items-center select-none hover:opacity-85 active:scale-95 transition-all focus:outline-none"
+          title="tr"
+          aria-label="tr logo"
+        >
+          <TRLogo className="h-8 sm:h-9 w-auto text-[var(--primary-color)]" />
+        </a>
 
         {/* Right Tools (Theme Picker, Sound Theme) - Light mode removed */}
         <div className="flex items-center gap-1.5 sm:gap-2">
