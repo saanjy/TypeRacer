@@ -222,9 +222,22 @@ export const TypingTest: React.FC = () => {
     }
 
     setTimeout(() => {
-      inputRef.current?.focus();
+      inputRef.current?.focus({ preventScroll: true });
     }, 50);
   }, [generateNewWords]);
+
+  // Listen for seamless global reset event (e.g. from clicking tr logo)
+  useEffect(() => {
+    const handleGlobalReset = () => {
+      resetTest(false);
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      setTimeout(() => {
+        inputRef.current?.focus({ preventScroll: true });
+      }, 20);
+    };
+    window.addEventListener('app:reset-test', handleGlobalReset);
+    return () => window.removeEventListener('app:reset-test', handleGlobalReset);
+  }, [resetTest]);
 
   // Regenerate when configuration controls change
   useEffect(() => {

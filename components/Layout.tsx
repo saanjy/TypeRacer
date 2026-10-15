@@ -57,25 +57,28 @@ export const Layout: React.FC = () => {
     <div className="min-h-screen flex flex-col font-mono text-sm selection:bg-brand-primary selection:text-black antialiased">
       {/* Top Header - Fully responsive across Mobile, Tablet, and Desktop */}
       <header className="w-full max-w-5xl mx-auto px-3 sm:px-6 py-3 sm:py-5 flex items-center justify-between gap-2 border-b border-white/5 sm:border-transparent">
-        {/* Just 'tr' in logo, removed other text */}
-        <a
-          href="#/"
+        {/* 'tr' Logo - clicking resets test seamlessly without page reload glitch */}
+        <button
+          type="button"
           onClick={(e) => {
-            if (window.location.hash === '#/' || window.location.hash === '') {
-              // Trigger quick restart if already on home
-              const restartBtn = document.querySelector<HTMLButtonElement>('button[title*="Restart"], button[aria-label*="restart"]');
-              if (restartBtn) {
-                e.preventDefault();
-                restartBtn.click();
-              }
+            e.preventDefault();
+            if (e.ctrlKey || e.metaKey) {
+              window.location.reload();
+              return;
             }
+            // Seamless instant test reset without any browser reload flash or navigation glitch
+            window.dispatchEvent(new CustomEvent('app:reset-test'));
+            // Blur button so it doesn't hold keyboard focus
+            (e.currentTarget as HTMLButtonElement).blur();
+            // Scroll to top instantly
+            window.scrollTo({ top: 0, behavior: 'instant' });
           }}
-          className="flex items-center select-none hover:opacity-85 active:scale-95 transition-all focus:outline-none"
-          title="tr"
-          aria-label="tr logo"
+          className="flex items-center select-none hover:opacity-80 active:scale-95 transition-transform focus:outline-none cursor-pointer bg-transparent border-none p-0"
+          title="Reset Test"
+          aria-label="tr logo - reset test"
         >
           <TRLogo className="h-8 sm:h-9 w-auto text-[var(--primary-color)]" />
-        </a>
+        </button>
 
         {/* Right Tools (Theme Picker, Sound Theme) - Light mode removed */}
         <div className="flex items-center gap-1.5 sm:gap-2">

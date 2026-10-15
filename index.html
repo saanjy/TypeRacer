@@ -28,10 +28,42 @@
         }
       }
     </script>
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem('typeracer_config_v3');
+          var themeId = 'velocity-amber';
+          if (stored) {
+            var parsed = JSON.parse(stored);
+            if (parsed && parsed.theme) themeId = parsed.theme;
+          }
+          var themeColors = {
+            'velocity-amber': { bg: '#18181b', subtle: '#27272a', text: '#a1a1aa', primary: '#f59e0b', active: '#fafafa', error: '#ef4444' },
+            'carbon-dark': { bg: '#121212', subtle: '#1e1e1e', text: '#71717a', primary: '#38bdf8', active: '#f4f4f5', error: '#f43f5e' },
+            'cyber-matrix': { bg: '#0d1117', subtle: '#161b22', text: '#7ee787', primary: '#2ea043', active: '#56d364', error: '#ff7b72' },
+            'nord-frost': { bg: '#242933', subtle: '#2e3440', text: '#d8dee9', primary: '#88c0d0', active: '#eceff4', error: '#bf616a' },
+            'dracula-night': { bg: '#282a36', subtle: '#44475a', text: '#6272a4', primary: '#bd93f9', active: '#f8f8f2', error: '#ff5555' },
+            'synthwave-84': { bg: '#241b2f', subtle: '#262335', text: '#848bbd', primary: '#ff7edb', active: '#f92aad', error: '#fe4450' },
+            'midnight-deep': { bg: '#090a0f', subtle: '#121520', text: '#5f6c80', primary: '#3b82f6', active: '#e2e8f0', error: '#ef4444' },
+            'emerald-terminal': { bg: '#0b1411', subtle: '#13221d', text: '#4e8573', primary: '#10b981', active: '#a7f3d0', error: '#f87171' },
+            'slate-minimal': { bg: '#0f172a', subtle: '#1e293b', text: '#94a3b8', primary: '#cbd5e1', active: '#f8fafc', error: '#f43f5e' },
+            'sunset-crimson': { bg: '#1a0d13', subtle: '#28141d', text: '#9e6277', primary: '#f43f5e', active: '#ffe4e6', error: '#fb7185' }
+          };
+          var t = themeColors[themeId] || themeColors['velocity-amber'];
+          var root = document.documentElement;
+          root.style.setProperty('--bg-color', t.bg);
+          root.style.setProperty('--subtle-color', t.subtle);
+          root.style.setProperty('--text-color', t.text);
+          root.style.setProperty('--primary-color', t.primary);
+          root.style.setProperty('--active-color', t.active);
+          root.style.setProperty('--error-color', t.error);
+        } catch(e) {}
+      })();
+    </script>
     <style>
       body {
-        background-color: #0e0e0e;
-        color: #646669;
+        background-color: var(--bg-color, #18181b);
+        color: var(--text-color, #a1a1aa);
       }
       /* Smooth cursor animation */
       .cursor {
