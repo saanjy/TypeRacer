@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+    <title>TypeRacer</title>
+    <meta name="description" content="TypeRacer - Test your typing speed and accuracy with real-time analytics" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23141416'/%3E%3Crect x='3' y='8' width='2' height='10' rx='0.8' fill='%23ffffff'/%3E%3Cpath d='M4 9h5v6' stroke='%23f59e0b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M8 15l4-4h5l1.5 3' fill='%23f59e0b' fill-opacity='0.3' stroke='%23f59e0b' stroke-width='1.5'/%3E%3Ccircle cx='18.5' cy='12.5' r='1.8' fill='%23ffffff'/%3E%3Cpath d='M8 18c4-1 9-1 13-.5l7 1.8c2 .6 3.5 1.2 4 1.5l-2 .8H10z' fill='%23f59e0b'/%3E%3Cpath d='M25 19.5l5.5.8-2 1.4h-4.5' stroke='%23ffffff' stroke-width='1.5' stroke-linecap='round'/%3E%3Crect x='6' y='15' width='5.5' height='8.5' rx='1.8' fill='%23111215' stroke='%23ffffff' stroke-width='1.2'/%3E%3Ccircle cx='8.7' cy='19.2' r='1.2' fill='%23f59e0b'/%3E%3Crect x='21' y='16.5' width='5' height='7.5' rx='1.6' fill='%23111215' stroke='%23ffffff' stroke-width='1.2'/%3E%3Ccircle cx='23.5' cy='20.2' r='1' fill='%23f59e0b'/%3E%3C/svg%3E" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            colors: {
+              'brand-bg': 'var(--bg-color)',
+              'brand-text': 'var(--text-color)',
+              'brand-primary': 'var(--primary-color)',
+              'brand-active': 'var(--active-color)',
+              'brand-error': 'var(--error-color)',
+              'brand-subtle': 'var(--subtle-color)',
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body {
+        background-color: #0e0e0e;
+        color: #646669;
+      }
+      /* Smooth cursor animation */
+      .cursor {
+        transition: left 0.1s ease, top 0.1s ease;
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+      }
+      .cursor-blink {
+        animation: blink 1s infinite;
+        background-color: #e2b714;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "recharts": "https://aistudiocdn.com/recharts@^3.4.1",
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

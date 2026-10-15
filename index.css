@@ -1,0 +1,133 @@
+:root {
+  --bg-color: #141416;
+  --subtle-color: #222226;
+  --text-color: #a1a1aa;
+  --primary-color: #f59e0b;
+  --active-color: #ffffff;
+  --error-color: #ef4444;
+}
+
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-family: 'JetBrains Mono', monospace;
+  overflow-x: hidden;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  touch-action: manipulation;
+}
+
+/* Caret styles */
+@keyframes caretBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.caret-line {
+  position: absolute;
+  top: 10%;
+  bottom: 10%;
+  width: 2.5px;
+  border-radius: 1px;
+  background-color: var(--primary-color);
+  animation: caretBlink 0.9s infinite;
+  pointer-events: none;
+  transition: transform 0.06s cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+
+.caret-underline {
+  position: absolute;
+  bottom: 0px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-color: var(--primary-color);
+  animation: caretBlink 0.9s infinite;
+  pointer-events: none;
+}
+
+.caret-block {
+  position: absolute;
+  inset: 0;
+  background-color: var(--primary-color);
+  opacity: 0.35;
+  animation: caretBlink 0.9s infinite;
+  pointer-events: none;
+  border-radius: 2px;
+}
+
+.caret-box {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid var(--primary-color);
+  animation: caretBlink 0.9s infinite;
+  pointer-events: none;
+  border-radius: 2px;
+}
+
+/* Typing area styling */
+.typing-word {
+  display: inline-flex;
+  position: relative;
+  margin-right: 0.55em;
+  margin-bottom: 0.25em;
+  white-space: pre;
+}
+
+/* Untyped character: high contrast, clear readability */
+.char-default {
+  color: var(--text-color);
+  opacity: 0.9;
+  transition: color 0.05s ease, opacity 0.05s ease;
+}
+
+/* Correctly typed character: bright and crisp */
+.char-correct {
+  color: var(--active-color);
+  opacity: 1;
+}
+
+/* Incorrectly typed character: clear bright error color */
+.char-incorrect {
+  color: var(--error-color);
+  text-decoration: underline;
+  text-decoration-color: var(--error-color);
+  text-decoration-thickness: 2px;
+  opacity: 1;
+}
+
+/* Extra characters typed past word length */
+.char-extra {
+  color: #ff5566;
+  opacity: 0.95;
+  text-decoration: underline;
+}
+
+/* Hide scrollbar for Chrome, Safari, Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-color);
+  border-radius: 3px;
+  opacity: 0.4;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-color);
+}
