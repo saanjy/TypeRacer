@@ -86,6 +86,26 @@ export const TypingTest: React.FC = () => {
   const timerIntervalRef = useRef<number | null>(null);
   const wordsContainerRef = useRef<HTMLDivElement>(null);
   const activeWordRef = useRef<HTMLDivElement>(null);
+  const startTimeRef = useRef<number | null>(null);
+  const lastWholeSecRef = useRef<number>(0);
+  const lastTimelineSecRef = useRef<number>(0);
+  const recentKeyCountRef = useRef<number>(0);
+
+  // Sync refs to avoid stale closure issues in high-frequency timer intervals
+  const wordHistoryRef = useRef(wordHistory);
+  wordHistoryRef.current = wordHistory;
+  const currentInputRef = useRef(currentInput);
+  currentInputRef.current = currentInput;
+  const currentWordIndexRef = useRef(currentWordIndex);
+  currentWordIndexRef.current = currentWordIndex;
+  const targetWordsRef = useRef(targetWords);
+  targetWordsRef.current = targetWords;
+  const isFinishedRef = useRef(isFinished);
+  isFinishedRef.current = isFinished;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const timeConfigRef = useRef(timeConfig);
+  timeConfigRef.current = timeConfig;
 
   // Window resize handler for mobile screen adaptation
   useEffect(() => {
@@ -201,6 +221,11 @@ export const TypingTest: React.FC = () => {
       timerIntervalRef.current = null;
     }
 
+    startTimeRef.current = null;
+    lastWholeSecRef.current = 0;
+    lastTimelineSecRef.current = 0;
+    recentKeyCountRef.current = 0;
+
     setIsRunning(false);
     setIsFinished(false);
     setStartTime(null);
@@ -244,18 +269,26 @@ export const TypingTest: React.FC = () => {
     resetTest();
   }, [mode, timeConfig, wordConfig, quoteLength, includePunctuation, includeNumbers]);
 
-  // Calculate live statistics
-  const computeLiveStats = useCallback((elapsedSec: number) => {
-    if (elapsedSec <= 0) return { wpm: 0, rawWpm: 0, accuracy: 100, correctChars: 0, errors: 0 };
+  // Pure snapshot calculator for instantaneous real-time WPM & Accuracy with zero lag
+  const calculateStatsSnapshot = useCallback((
+    history: string[],
+    input: string,
+    wordIdx: number,
+    targets: string[],
+    elapsedSec: number
+  ) => {
+    if (elapsedSec <= 0) return { wpm: 0, rawWpm: 0, accuracy: 100, correctChars: 0, errors: 0, totalTyped: 0 };
 
     let correctChars = 0;
     let errorChars = 0;
     let totalTyped = 0;
 
     // Past completed words
-    wordHistory.forEach((typed, idx) => {
-      const target = targetWords[idx] || '';
-      totalTyped += typed.length + 1;
+    for (let idx = 0; idx < history.length; idx++) {
+      const typed = history[idx] || '';
+      const target = targets[idx] || '';
+      totalTyped += typed.length + 1; // includes space separator
+
       for (let c = 0; c < typed.length; c++) {
         if (c < target.length && typed[c] === target[c]) {
           correctChars++;
@@ -266,28 +299,31 @@ export const TypingTest: React.FC = () => {
       if (typed.length < target.length) {
         errorChars += (target.length - typed.length);
       }
-      correctChars++;
-    });
+      correctChars++; // space separator
+    }
 
     // Current word being typed
-    const currentTarget = targetWords[currentWordIndex] || '';
-    totalTyped += currentInput.length;
-    for (let c = 0; c < currentInput.length; c++) {
-      if (c < currentTarget.length && currentInput[c] === currentTarget[c]) {
+    const currentTarget = targets[wordIdx] || '';
+    totalTyped += input.length;
+    for (let c = 0; c < input.length; c++) {
+      if (c < currentTarget.length && input[c] === currentTarget[c]) {
         correctChars++;
       } else {
         errorChars++;
       }
     }
 
-    const minutes = elapsedSec / 60;
+    // Smooth initial ramp: damp the initial fraction of a second (first 0.35s)
+    // to prevent unrealistic divide-by-zero spikes while showing live WPM immediately from key 1
+    const effectiveSec = Math.max(elapsedSec, 0.35);
+    const minutes = effectiveSec / 60;
     const wpm = minutes > 0 ? Math.max(0, Math.round((correctChars / 5) / minutes)) : 0;
     const rawWpm = minutes > 0 ? Math.max(0, Math.round((totalTyped / 5) / minutes)) : 0;
     const totalChars = correctChars + errorChars;
     const accuracy = totalChars > 0 ? Math.max(0, Math.min(100, Math.round((correctChars / totalChars) * 100))) : 100;
 
     return { wpm, rawWpm, accuracy, correctChars, errors: errorChars, totalTyped };
-  }, [wordHistory, targetWords, currentWordIndex, currentInput]);
+  }, []);
 
   // Finalize test and calculate stats
   const finishTest = useCallback(() => {
@@ -298,7 +334,14 @@ export const TypingTest: React.FC = () => {
     setIsRunning(false);
     setIsFinished(true);
 
-    const effectiveDuration = Math.max(1, mode === 'time' ? timeConfig : timeElapsed);
+    const effectiveDuration = Math.max(
+      1,
+      mode === 'time'
+        ? timeConfig
+        : startTimeRef.current
+        ? Math.round((performance.now() - startTimeRef.current) / 1000)
+        : timeElapsed
+    );
     const minutes = effectiveDuration / 60;
 
     let correctChars = 0;
@@ -422,47 +465,69 @@ export const TypingTest: React.FC = () => {
     }
   }, [mode, timeConfig, timeElapsed, wordHistory, targetWords, currentInput, currentWordIndex, timeline, activeTheme]);
 
-  // Main 1-Second Timer for real-time Recharts line graph progression
+  const finishTestRef = useRef(finishTest);
+  finishTestRef.current = finishTest;
+
+  // High-frequency 100ms interval for smooth, ultra-responsive live WPM updates
   useEffect(() => {
     if (isRunning && !isFinished) {
       timerIntervalRef.current = window.setInterval(() => {
-        setTimeElapsed(prev => {
-          const nextSec = prev + 1;
+        if (!startTimeRef.current || isFinishedRef.current) return;
 
-          const currentStats = computeLiveStats(nextSec);
-          setLiveWpm(currentStats.wpm);
-          setLiveRawWpm(currentStats.rawWpm);
-          setLiveAcc(currentStats.accuracy);
+        const now = performance.now();
+        const elapsedSec = Math.max(0.001, (now - startTimeRef.current) / 1000);
+        const wholeSec = Math.floor(elapsedSec);
 
-          // Append real-time data point
+        // Update countdown/elapsed seconds on whole second transitions
+        if (wholeSec !== lastWholeSecRef.current) {
+          lastWholeSecRef.current = wholeSec;
+          setTimeElapsed(wholeSec);
+        }
+
+        // Live calculation continuously refreshes so WPM naturally decays if typing pauses
+        const currentStats = calculateStatsSnapshot(
+          wordHistoryRef.current,
+          currentInputRef.current,
+          currentWordIndexRef.current,
+          targetWordsRef.current,
+          elapsedSec
+        );
+
+        setLiveWpm(currentStats.wpm);
+        setLiveRawWpm(currentStats.rawWpm);
+        setLiveAcc(currentStats.accuracy);
+
+        // Append real-time data point to chart timeline each second
+        if (wholeSec > lastTimelineSecRef.current) {
+          lastTimelineSecRef.current = wholeSec;
           setTimeline(currTimeline => [
             ...currTimeline,
             {
-              second: nextSec,
+              second: wholeSec,
               wpm: currentStats.wpm,
               rawWpm: currentStats.rawWpm,
               errors: currentStats.errors,
               accuracy: currentStats.accuracy,
-              burst: recentKeyCount * 12
+              burst: recentKeyCountRef.current * 12
             }
           ]);
+          recentKeyCountRef.current = 0;
           setRecentKeyCount(0);
+        }
 
-          if (mode === 'time' && nextSec >= timeConfig) {
-            finishTest();
-            return timeConfig;
-          }
-          return nextSec;
-        });
-      }, 1000);
+        if (modeRef.current === 'time' && elapsedSec >= timeConfigRef.current) {
+          finishTestRef.current();
+        }
+      }, 100);
     }
 
     return () => {
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
       }
     };
-  }, [isRunning, isFinished, mode, timeConfig, computeLiveStats, finishTest, recentKeyCount]);
+  }, [isRunning, isFinished, calculateStatsSnapshot]);
 
   // Submit current word (shared between physical spacebar and mobile soft space)
   const submitCurrentWord = useCallback((inputWord: string) => {
@@ -476,10 +541,25 @@ export const TypingTest: React.FC = () => {
     const nextWordIdx = currentWordIndex + 1;
     setCurrentWordIndex(nextWordIdx);
 
+    // Immediately recalculate live stats with zero latency
+    if (startTimeRef.current) {
+      const elapsedSec = Math.max(0.001, (performance.now() - startTimeRef.current) / 1000);
+      const liveStats = calculateStatsSnapshot(
+        newHistory,
+        '',
+        nextWordIdx,
+        targetWords,
+        elapsedSec
+      );
+      setLiveWpm(liveStats.wpm);
+      setLiveRawWpm(liveStats.rawWpm);
+      setLiveAcc(liveStats.accuracy);
+    }
+
     if ((mode === 'words' || mode === 'quote') && nextWordIdx >= targetWords.length) {
       finishTest();
     }
-  }, [wordHistory, currentWordIndex, mode, targetWords.length, finishTest]);
+  }, [wordHistory, currentWordIndex, mode, targetWords, finishTest, calculateStatsSnapshot]);
 
   // Handle Keystrokes in Input (Desktop / Hardware Keyboards)
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -511,9 +591,24 @@ export const TypingTest: React.FC = () => {
         const prevTarget = targetWords[prevIdx] || '';
 
         if (prevTyped !== prevTarget) {
+          const nextHistory = wordHistory.slice(0, prevIdx);
           setCurrentInput(prevTyped);
           setCurrentWordIndex(prevIdx);
-          setWordHistory(wordHistory.slice(0, prevIdx));
+          setWordHistory(nextHistory);
+
+          if (startTimeRef.current) {
+            const elapsedSec = Math.max(0.001, (performance.now() - startTimeRef.current) / 1000);
+            const liveStats = calculateStatsSnapshot(
+              nextHistory,
+              prevTyped,
+              prevIdx,
+              targetWords,
+              elapsedSec
+            );
+            setLiveWpm(liveStats.wpm);
+            setLiveRawWpm(liveStats.rawWpm);
+            setLiveAcc(liveStats.accuracy);
+          }
         }
       }
     }
@@ -533,7 +628,13 @@ export const TypingTest: React.FC = () => {
       return;
     }
 
-    if (!isRunning && val.length > 0) {
+    const now = performance.now();
+    let currentStart = startTimeRef.current;
+    if (!currentStart && val.length > 0) {
+      currentStart = now;
+      startTimeRef.current = now;
+      lastWholeSecRef.current = 0;
+      lastTimelineSecRef.current = 0;
       setIsRunning(true);
       setStartTime(Date.now());
       setTimeline([{ second: 0, wpm: 0, rawWpm: 0, errors: 0, accuracy: 100, burst: 0 }]);
@@ -549,10 +650,26 @@ export const TypingTest: React.FC = () => {
         isError = true;
       }
       soundService.playKey(isError, false);
+      recentKeyCountRef.current += 1;
       setRecentKeyCount(prev => prev + 1);
     }
 
     setCurrentInput(val);
+
+    // Instant real-time live WPM update on every single keystroke
+    if (currentStart) {
+      const elapsedSec = Math.max(0.001, (now - currentStart) / 1000);
+      const liveStats = calculateStatsSnapshot(
+        wordHistory,
+        val,
+        currentWordIndex,
+        targetWords,
+        elapsedSec
+      );
+      setLiveWpm(liveStats.wpm);
+      setLiveRawWpm(liveStats.rawWpm);
+      setLiveAcc(liveStats.accuracy);
+    }
 
     if ((mode === 'words' || mode === 'quote') && currentWordIndex === targetWords.length - 1) {
       if (val.length === targetWord.length) {
@@ -858,31 +975,33 @@ Consistency: ${stats.consistency || 82}%`;
       <div className="w-full flex items-center justify-between h-8 sm:h-9 px-2 mb-2 sm:mb-3 select-none font-mono">
         <div className="flex items-center gap-4 sm:gap-6">
           <div className="text-2xl sm:text-3xl font-bold font-mono tracking-tight" style={{ color: activeTheme.primary }}>
-            {isRunning ? (
-              mode === 'time' ? Math.max(0, timeConfig - timeElapsed) : `${timeElapsed}s`
+            {mode === 'time' ? (
+              isRunning ? Math.max(0, timeConfig - timeElapsed) : timeConfig
             ) : (
-              <span className="opacity-0">0</span>
+              isRunning ? `${timeElapsed}s` : '0s'
             )}
           </div>
 
-          {isRunning && (
-            <div className="flex items-center gap-3 sm:gap-5 text-xs sm:text-sm animate-fade-in">
-              {showLiveWpm && (
-                <div className="flex items-center gap-1 sm:gap-1.5">
-                  <Flame className="w-3.5 h-3.5 text-brand-primary" />
-                  <span className="text-brand-text text-[11px] sm:text-xs">wpm:</span>
-                  <span className="text-brand-active font-bold text-sm sm:text-base">{liveWpm}</span>
-                </div>
-              )}
-              {showLiveAcc && (
-                <div className="flex items-center gap-1 sm:gap-1.5">
-                  <Activity className="w-3.5 h-3.5 text-brand-text" />
-                  <span className="text-brand-text text-[11px] sm:text-xs">acc:</span>
-                  <span className="text-brand-active font-bold text-sm sm:text-base">{liveAcc}%</span>
-                </div>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-3 sm:gap-5 text-xs sm:text-sm">
+            {showLiveWpm && (
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <Flame className={`w-3.5 h-3.5 transition-colors ${isRunning ? 'text-brand-primary' : 'text-brand-text/40'}`} />
+                <span className="text-brand-text text-[11px] sm:text-xs">wpm:</span>
+                <span className="text-brand-active font-bold text-sm sm:text-base font-mono min-w-[2ch]">
+                  {isRunning ? liveWpm : '—'}
+                </span>
+              </div>
+            )}
+            {showLiveAcc && (
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <Activity className={`w-3.5 h-3.5 transition-colors ${isRunning ? 'text-brand-text' : 'text-brand-text/40'}`} />
+                <span className="text-brand-text text-[11px] sm:text-xs">acc:</span>
+                <span className="text-brand-active font-bold text-sm sm:text-base font-mono min-w-[3ch]">
+                  {isRunning ? `${liveAcc}%` : '—'}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
         {isRunning && (
