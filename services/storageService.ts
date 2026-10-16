@@ -66,6 +66,9 @@ export const storageService = {
         updated.theme = 'velocity-amber';
       }
       localStorage.setItem(CONFIG_KEY, JSON.stringify(updated));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('app:config-changed', { detail: updated }));
+      }
       return updated;
     } catch {
       return DEFAULT_CONFIG;

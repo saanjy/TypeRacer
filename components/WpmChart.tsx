@@ -114,10 +114,10 @@ export const WpmChart: React.FC<WpmChartProps> = ({
     }
     return (
       <g key={`error-dot-${index}`}>
-        <circle cx={cx} cy={cy} r={5} fill={activeTheme.error} fillOpacity={0.8} />
+        <circle cx={cx} cy={cy} r={4.5} fill={activeTheme.error} fillOpacity={0.9} stroke={activeTheme.bg} strokeWidth={1.5} />
         <text 
           x={cx} 
-          y={cy - 8} 
+          y={cy - 7} 
           fill={activeTheme.error} 
           fontSize={10} 
           fontFamily="JetBrains Mono, monospace" 

@@ -85,20 +85,44 @@ body {
   opacity: 1;
 }
 
-/* Incorrectly typed character: clear bright error color */
+/* Incorrectly typed character: clear bright error color with highlight */
 .char-incorrect {
-  color: var(--error-color);
+  color: #f87171;
+  background-color: rgba(239, 68, 68, 0.22);
+  border-radius: 2px;
   text-decoration: underline;
-  text-decoration-color: var(--error-color);
+  text-decoration-color: #ef4444;
   text-decoration-thickness: 2px;
   opacity: 1;
 }
 
 /* Extra characters typed past word length */
 .char-extra {
-  color: #ff5566;
-  opacity: 0.95;
+  color: #fca5a5;
+  background-color: rgba(239, 68, 68, 0.32);
+  border-radius: 2px;
   text-decoration: underline;
+  text-decoration-color: #ef4444;
+  text-decoration-thickness: 2px;
+  opacity: 1;
+}
+
+/* Untyped/skipped characters in an already-submitted word */
+.char-missed {
+  color: #ef4444;
+  opacity: 0.55;
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: #ef4444;
+}
+
+/* Submitted word containing errors: clear spellcheck-style wavy red underline */
+.typing-word.word-has-error {
+  text-decoration: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: rgba(239, 68, 68, 0.85);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 4px;
 }
 
 /* Hide scrollbar for Chrome, Safari, Opera */

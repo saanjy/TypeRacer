@@ -17,6 +17,20 @@ export const Layout: React.FC = () => {
   const [config, setConfig] = useState(() => storageService.getConfig());
   const [showThemeModal, setShowThemeModal] = useState(false);
 
+  // Sync with global config changes
+  useEffect(() => {
+    const handleConfigChange = (e: Event) => {
+      const customEvent = e as CustomEvent<any>;
+      if (customEvent.detail) {
+        setConfig(customEvent.detail);
+      } else {
+        setConfig(storageService.getConfig());
+      }
+    };
+    window.addEventListener('app:config-changed', handleConfigChange);
+    return () => window.removeEventListener('app:config-changed', handleConfigChange);
+  }, []);
+
   // Apply theme colors to CSS variables and body
   useEffect(() => {
     const themeDef = THEMES[config.theme] || THEMES['velocity-amber'];

@@ -14,11 +14,103 @@ import {
   Terminal,
   Smartphone
 } from 'lucide-react';
-import { TestResult, TestMode, QuoteLength, SecondPoint, ThemeId, SoundTheme, CaretStyle, TextViewMode } from '../types';
+import { TestResult, TestMode, QuoteLength, SecondPoint, ThemeId, SoundTheme, CaretStyle, TextViewMode, TestConfig } from '../types';
 import { COMMON_WORDS, QUOTES, THEMES } from '../constants';
 import { storageService } from '../services/storageService';
 import { soundService } from '../services/soundService';
 import { WpmChart } from './WpmChart';
+
+// Levenshtein distance for minimal edit distance (insertions, deletions, substitutions)
+const getLevenshteinDistance = (a: string, b: string): number => {
+  if (a === b) return 0;
+  if (!a) return b.length;
+  if (!b) return a.length;
+
+  const m = a.length;
+  const n = b.length;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, i) => i);
+
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const temp = dp[j];
+      if (a[i - 1] === b[j - 1]) {
+        dp[j] = prev;
+      } else {
+        dp[j] = 1 + Math.min(prev, dp[j], dp[j - 1]);
+      }
+      prev = temp;
+    }
+  }
+
+  return dp[n];
+};
+
+// Calculate actual uncorrected mistakes across the entire test state
+const getCurrentTotalMistakes = (
+  history: string[],
+  input: string,
+  wordIdx: number,
+  targets: string[]
+): number => {
+  let mistakes = 0;
+
+  // Mistakes in completed words in history
+  for (let i = 0; i < history.length; i++) {
+    const typed = history[i] || '';
+    const target = targets[i] || '';
+    if (typed !== target) {
+      mistakes += getLevenshteinDistance(typed, target);
+    }
+  }
+
+  // Mistakes in current input being typed
+  if (input.length > 0) {
+    const target = targets[wordIdx] || '';
+    const targetPrefix = target.slice(0, input.length);
+    const prefixMistakes = getLevenshteinDistance(input, targetPrefix);
+    const extraLen = Math.max(0, input.length - target.length);
+    mistakes += Math.max(prefixMistakes, extraLen);
+  }
+
+  return mistakes;
+};
+
+// Reconcile timeline error points so errors reflect only actual uncorrected mistakes
+// If user edited/removed a mistake, the error count is removed from timeline points
+const reconcileTimelineErrors = (timelineData: SecondPoint[], totalMistakes: number): SecondPoint[] => {
+  if (timelineData.length === 0) return timelineData;
+  const recorded = timelineData.reduce((sum, p) => sum + (p.errors || 0), 0);
+  if (recorded === totalMistakes) return timelineData;
+
+  if (totalMistakes === 0) {
+    return timelineData.map(p => (p.errors ? { ...p, errors: 0 } : p));
+  }
+
+  if (recorded > totalMistakes) {
+    let toReduce = recorded - totalMistakes;
+    const next = [...timelineData];
+    for (let i = next.length - 1; i >= 0 && toReduce > 0; i--) {
+      const err = next[i].errors || 0;
+      if (err > 0) {
+        const take = Math.min(err, toReduce);
+        next[i] = { ...next[i], errors: err - take };
+        toReduce -= take;
+      }
+    }
+    return next;
+  }
+
+  const diff = totalMistakes - recorded;
+  const next = [...timelineData];
+  const lastIdx = next.length - 1;
+  next[lastIdx] = {
+    ...next[lastIdx],
+    errors: (next[lastIdx].errors || 0) + diff
+  };
+  return next;
+};
 
 // Initial word list generator so words are instantly visible on page load
 const createInitialWordList = () => {
@@ -122,16 +214,21 @@ export const TypingTest: React.FC = () => {
     soundService.setTheme(sound);
   }, [sound]);
 
-  // Synchronize with external config changes
+  // Synchronize with external config changes (same-tab and cross-tab)
   useEffect(() => {
-    const handleStorageChange = () => {
-      const fresh = storageService.getConfig();
+    const handleStorageChange = (e?: Event) => {
+      const customEvent = e as CustomEvent<TestConfig> | undefined;
+      const fresh = customEvent?.detail || storageService.getConfig();
       setConfig(fresh);
       setSound(fresh.soundTheme);
       setTextViewMode(fresh.textViewMode || 'full');
     };
+    window.addEventListener('app:config-changed', handleStorageChange);
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('app:config-changed', handleStorageChange);
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
   // Save config whenever changed
@@ -289,28 +386,23 @@ export const TypingTest: React.FC = () => {
       const target = targets[idx] || '';
       totalTyped += typed.length + 1; // includes space separator
 
-      for (let c = 0; c < typed.length; c++) {
-        if (c < target.length && typed[c] === target[c]) {
-          correctChars++;
-        } else {
-          errorChars++;
-        }
+      if (typed === target) {
+        correctChars += target.length + 1;
+      } else {
+        const wordMistakes = getLevenshteinDistance(typed, target);
+        errorChars += wordMistakes;
+        correctChars += Math.max(0, target.length - wordMistakes) + 1;
       }
-      if (typed.length < target.length) {
-        errorChars += (target.length - typed.length);
-      }
-      correctChars++; // space separator
     }
 
     // Current word being typed
     const currentTarget = targets[wordIdx] || '';
     totalTyped += input.length;
-    for (let c = 0; c < input.length; c++) {
-      if (c < currentTarget.length && input[c] === currentTarget[c]) {
-        correctChars++;
-      } else {
-        errorChars++;
-      }
+    if (input.length > 0) {
+      const targetPrefix = currentTarget.slice(0, input.length);
+      const currentMistakes = getLevenshteinDistance(input, targetPrefix);
+      errorChars += currentMistakes;
+      correctChars += Math.max(0, input.length - currentMistakes);
     }
 
     // Smooth initial ramp: damp the initial fraction of a second (first 0.35s)
@@ -349,72 +441,73 @@ export const TypingTest: React.FC = () => {
     let extraChars = 0;
     let missedChars = 0;
     let totalTyped = 0;
+    let totalMistakes = 0;
     const missedWords: string[] = [];
 
     // Analyze completed words
     wordHistory.forEach((typed, idx) => {
       const target = targetWords[idx] || '';
-      let wordHasError = false;
       totalTyped += typed.length + 1;
 
-      for (let c = 0; c < typed.length; c++) {
-        if (c < target.length) {
-          if (typed[c] === target[c]) {
-            correctChars++;
-          } else {
-            incorrectChars++;
-            wordHasError = true;
-          }
-        } else {
-          extraChars++;
-          wordHasError = true;
-        }
-      }
-
-      if (typed.length < target.length) {
-        missedChars += (target.length - typed.length);
-        wordHasError = true;
-      }
-
-      correctChars++;
-
-      if (wordHasError) {
+      if (typed === target) {
+        correctChars += target.length + 1; // All letters and space are correct
+      } else {
+        const wordMistakes = getLevenshteinDistance(typed, target);
+        totalMistakes += wordMistakes;
         missedWords.push(target);
+
+        // Accurate character-level category attribution
+        if (typed.length > target.length) {
+          extraChars += (typed.length - target.length);
+        } else if (typed.length < target.length) {
+          missedChars += (target.length - typed.length);
+        }
+        const substitutions = Math.max(0, wordMistakes - Math.abs(typed.length - target.length));
+        incorrectChars += Math.max(substitutions, wordMistakes > 0 && extraChars === 0 && missedChars === 0 ? wordMistakes : 0);
+        correctChars += Math.max(0, target.length - wordMistakes) + 1;
       }
     });
 
     // Check last word if in progress
     if (currentInput.length > 0) {
       const currentTarget = targetWords[currentWordIndex] || '';
-      let wordHasError = false;
       totalTyped += currentInput.length;
 
-      for (let c = 0; c < currentInput.length; c++) {
-        if (c < currentTarget.length) {
-          if (currentInput[c] === currentTarget[c]) {
-            correctChars++;
-          } else {
-            incorrectChars++;
-            wordHasError = true;
-          }
-        } else {
-          extraChars++;
-          wordHasError = true;
+      if (mode === 'time') {
+        // In time mode, user stopped because timer hit 0
+        // Only evaluate characters actually typed against the prefix of the target word
+        const targetPrefix = currentTarget.slice(0, currentInput.length);
+        const lastWordMistakes = getLevenshteinDistance(currentInput, targetPrefix);
+        totalMistakes += lastWordMistakes;
+
+        if (lastWordMistakes > 0) {
+          incorrectChars += lastWordMistakes;
+          missedWords.push(currentTarget);
         }
-      }
-      if (currentInput.length < currentTarget.length) {
-        missedChars += (currentTarget.length - currentInput.length);
-        wordHasError = true;
-      }
-      if (wordHasError) {
-        missedWords.push(currentTarget);
+        correctChars += Math.max(0, currentInput.length - lastWordMistakes);
+        // Do NOT count untyped remaining letters as missed when timer expired!
+      } else {
+        // In words or quote mode, if test ended while word was incomplete
+        const lastWordMistakes = getLevenshteinDistance(currentInput, currentTarget);
+        totalMistakes += lastWordMistakes;
+        if (lastWordMistakes > 0) {
+          missedWords.push(currentTarget);
+        }
+        if (currentInput.length < currentTarget.length) {
+          missedChars += (currentTarget.length - currentInput.length);
+        } else if (currentInput.length > currentTarget.length) {
+          extraChars += (currentInput.length - currentTarget.length);
+        }
+        const substitutions = Math.max(0, lastWordMistakes - Math.abs(currentInput.length - currentTarget.length));
+        incorrectChars += substitutions;
+        correctChars += Math.max(0, currentTarget.length - lastWordMistakes);
       }
     }
 
     const finalWpm = Math.max(0, Math.round((correctChars / 5) / minutes));
     const finalRaw = Math.max(0, Math.round((totalTyped / 5) / minutes));
-    const totalConsidered = correctChars + incorrectChars + extraChars;
-    const finalAcc = totalConsidered > 0 ? Math.max(0, Math.min(100, Math.round((correctChars / totalConsidered) * 100))) : 100;
+    const totalCharsCount = correctChars + totalMistakes;
+    const finalAcc = totalCharsCount > 0 ? Math.max(0, Math.min(100, Math.round((correctChars / totalCharsCount) * 100))) : 100;
 
     // Consistency %
     let consistency = 82;
@@ -428,6 +521,23 @@ export const TypingTest: React.FC = () => {
       }
     }
 
+    // Ensure chart timeline points accurately reflect mistakes per second and reconcile with totalMistakes
+    let finalTimeline = [...timeline];
+    if (finalTimeline.length === 0) {
+      finalTimeline = [
+        {
+          second: effectiveDuration,
+          wpm: finalWpm,
+          rawWpm: finalRaw,
+          errors: totalMistakes,
+          accuracy: finalAcc,
+          burst: finalWpm
+        }
+      ];
+    } else {
+      finalTimeline = reconcileTimelineErrors(finalTimeline, totalMistakes);
+    }
+
     const resultObj: TestResult = {
       id: crypto.randomUUID(),
       wpm: finalWpm,
@@ -438,7 +548,7 @@ export const TypingTest: React.FC = () => {
       duration: effectiveDuration,
       mode,
       subMode: mode === 'time' ? timeConfig : mode === 'words' ? wordConfig : quoteLength,
-      mistakes: incorrectChars + extraChars,
+      mistakes: totalMistakes,
       correctChars,
       characters: {
         correct: correctChars,
@@ -446,9 +556,7 @@ export const TypingTest: React.FC = () => {
         extra: extraChars,
         missed: missedChars
       },
-      chartTimeline: timeline.length > 0 ? timeline : [
-        { second: effectiveDuration, wpm: finalWpm, rawWpm: finalRaw, errors: incorrectChars, accuracy: finalAcc, burst: finalWpm }
-      ],
+      chartTimeline: finalTimeline,
       missedWords: Array.from(new Set(missedWords))
     };
 
@@ -497,20 +605,35 @@ export const TypingTest: React.FC = () => {
         setLiveRawWpm(currentStats.rawWpm);
         setLiveAcc(currentStats.accuracy);
 
-        // Append real-time data point to chart timeline each second
+        // Append real-time data point to chart timeline each second with delta errors only
         if (wholeSec > lastTimelineSecRef.current) {
           lastTimelineSecRef.current = wholeSec;
-          setTimeline(currTimeline => [
-            ...currTimeline,
-            {
-              second: wholeSec,
-              wpm: currentStats.wpm,
-              rawWpm: currentStats.rawWpm,
-              errors: currentStats.errors,
-              accuracy: currentStats.accuracy,
-              burst: recentKeyCountRef.current * 12
-            }
-          ]);
+
+          const currentMistakes = getCurrentTotalMistakes(
+            wordHistoryRef.current,
+            currentInputRef.current,
+            currentWordIndexRef.current,
+            targetWordsRef.current
+          );
+
+          setTimeline(currTimeline => {
+            const recordedSoFar = currTimeline.reduce((sum, p) => sum + (p.errors || 0), 0);
+            const deltaErrors = Math.max(0, currentMistakes - recordedSoFar);
+
+            const nextTimeline = [
+              ...currTimeline,
+              {
+                second: wholeSec,
+                wpm: currentStats.wpm,
+                rawWpm: currentStats.rawWpm,
+                errors: deltaErrors,
+                accuracy: currentStats.accuracy,
+                burst: recentKeyCountRef.current * 12
+              }
+            ];
+
+            return reconcileTimelineErrors(nextTimeline, currentMistakes);
+          });
           recentKeyCountRef.current = 0;
           setRecentKeyCount(0);
         }
@@ -541,7 +664,7 @@ export const TypingTest: React.FC = () => {
     const nextWordIdx = currentWordIndex + 1;
     setCurrentWordIndex(nextWordIdx);
 
-    // Immediately recalculate live stats with zero latency
+    // Immediately recalculate live stats and reconcile errors
     if (startTimeRef.current) {
       const elapsedSec = Math.max(0.001, (performance.now() - startTimeRef.current) / 1000);
       const liveStats = calculateStatsSnapshot(
@@ -554,12 +677,56 @@ export const TypingTest: React.FC = () => {
       setLiveWpm(liveStats.wpm);
       setLiveRawWpm(liveStats.rawWpm);
       setLiveAcc(liveStats.accuracy);
+
+      const currentMistakes = getCurrentTotalMistakes(
+        newHistory,
+        '',
+        nextWordIdx,
+        targetWords
+      );
+      setTimeline(curr => reconcileTimelineErrors(curr, currentMistakes));
     }
 
     if ((mode === 'words' || mode === 'quote') && nextWordIdx >= targetWords.length) {
       finishTest();
     }
   }, [wordHistory, currentWordIndex, mode, targetWords, finishTest, calculateStatsSnapshot]);
+
+  // Jump to a past word to edit/fix mistakes
+  const jumpToWord = useCallback((wordIdx: number) => {
+    if (isFinished || wordIdx >= currentWordIndex) return;
+    const targetTyped = wordHistory[wordIdx] || '';
+    const nextHistory = wordHistory.slice(0, wordIdx);
+    setCurrentInput(targetTyped);
+    setCurrentWordIndex(wordIdx);
+    setWordHistory(nextHistory);
+    if (inputRef.current) {
+      inputRef.current.focus({ preventScroll: true });
+      setIsInputFocused(true);
+    }
+
+    if (startTimeRef.current) {
+      const elapsedSec = Math.max(0.001, (performance.now() - startTimeRef.current) / 1000);
+      const liveStats = calculateStatsSnapshot(
+        nextHistory,
+        targetTyped,
+        wordIdx,
+        targetWords,
+        elapsedSec
+      );
+      setLiveWpm(liveStats.wpm);
+      setLiveRawWpm(liveStats.rawWpm);
+      setLiveAcc(liveStats.accuracy);
+
+      const currentMistakes = getCurrentTotalMistakes(
+        nextHistory,
+        targetTyped,
+        wordIdx,
+        targetWords
+      );
+      setTimeline(curr => reconcileTimelineErrors(curr, currentMistakes));
+    }
+  }, [isFinished, currentWordIndex, wordHistory, calculateStatsSnapshot, targetWords]);
 
   // Handle Keystrokes in Input (Desktop / Hardware Keyboards)
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -584,31 +751,71 @@ export const TypingTest: React.FC = () => {
     }
 
     if (e.key === 'Backspace') {
-      if (currentInput.length === 0 && currentWordIndex > 0) {
-        e.preventDefault();
-        const prevIdx = currentWordIndex - 1;
-        const prevTyped = wordHistory[prevIdx] || '';
-        const prevTarget = targetWords[prevIdx] || '';
-
-        if (prevTyped !== prevTarget) {
-          const nextHistory = wordHistory.slice(0, prevIdx);
-          setCurrentInput(prevTyped);
-          setCurrentWordIndex(prevIdx);
-          setWordHistory(nextHistory);
+      // Ctrl+Backspace or Alt+Backspace: clear current input immediately
+      if (e.ctrlKey || e.altKey) {
+        if (currentInput.length > 0) {
+          e.preventDefault();
+          setCurrentInput('');
+          soundService.playKey(false, false);
 
           if (startTimeRef.current) {
             const elapsedSec = Math.max(0.001, (performance.now() - startTimeRef.current) / 1000);
             const liveStats = calculateStatsSnapshot(
-              nextHistory,
-              prevTyped,
-              prevIdx,
+              wordHistory,
+              '',
+              currentWordIndex,
               targetWords,
               elapsedSec
             );
             setLiveWpm(liveStats.wpm);
             setLiveRawWpm(liveStats.rawWpm);
             setLiveAcc(liveStats.accuracy);
+
+            const currentMistakes = getCurrentTotalMistakes(
+              wordHistory,
+              '',
+              currentWordIndex,
+              targetWords
+            );
+            setTimeline(curr => reconcileTimelineErrors(curr, currentMistakes));
           }
+          return;
+        }
+      }
+
+      // If at start of word and can backspace to previous word to edit it
+      if (currentInput.length === 0 && currentWordIndex > 0) {
+        e.preventDefault();
+        const prevIdx = currentWordIndex - 1;
+        const prevTyped = wordHistory[prevIdx] || '';
+
+        const nextHistory = wordHistory.slice(0, prevIdx);
+        setCurrentInput(prevTyped);
+        setCurrentWordIndex(prevIdx);
+        setWordHistory(nextHistory);
+
+        soundService.playKey(false, false);
+
+        if (startTimeRef.current) {
+          const elapsedSec = Math.max(0.001, (performance.now() - startTimeRef.current) / 1000);
+          const liveStats = calculateStatsSnapshot(
+            nextHistory,
+            prevTyped,
+            prevIdx,
+            targetWords,
+            elapsedSec
+          );
+          setLiveWpm(liveStats.wpm);
+          setLiveRawWpm(liveStats.rawWpm);
+          setLiveAcc(liveStats.accuracy);
+
+          const currentMistakes = getCurrentTotalMistakes(
+            nextHistory,
+            prevTyped,
+            prevIdx,
+            targetWords
+          );
+          setTimeline(curr => reconcileTimelineErrors(curr, currentMistakes));
         }
       }
     }
@@ -621,7 +828,6 @@ export const TypingTest: React.FC = () => {
     let val = e.target.value;
 
     // Mobile / Tablet soft-keyboard support:
-    // Many mobile keyboards (Gboard, iOS, Samsung) send a space inside `onChange` rather than `onKeyDown`.
     if (val.endsWith(' ')) {
       const trimmed = val.slice(0, -1);
       submitCurrentWord(trimmed || currentInput);
@@ -641,17 +847,18 @@ export const TypingTest: React.FC = () => {
     }
 
     const targetWord = targetWords[currentWordIndex] || '';
-    const charIndex = val.length - 1;
-    let isError = false;
-    if (charIndex >= 0) {
-      if (charIndex < targetWord.length) {
-        isError = val[charIndex] !== targetWord[charIndex];
-      } else {
-        isError = true;
-      }
+
+    // Play feedback sound and update keycount
+    if (val.length > currentInput.length) {
+      // User typed a new character
+      const addedCharIndex = val.length - 1;
+      const isError = addedCharIndex >= targetWord.length || val[addedCharIndex] !== targetWord[addedCharIndex];
       soundService.playKey(isError, false);
       recentKeyCountRef.current += 1;
       setRecentKeyCount(prev => prev + 1);
+    } else {
+      // User deleted characters (Backspace/edit) - never count deletion as an error!
+      soundService.playKey(false, false);
     }
 
     setCurrentInput(val);
@@ -669,10 +876,21 @@ export const TypingTest: React.FC = () => {
       setLiveWpm(liveStats.wpm);
       setLiveRawWpm(liveStats.rawWpm);
       setLiveAcc(liveStats.accuracy);
+
+      // Reconcile timeline errors in real-time: if user edited the mistake, remove it!
+      const currentMistakes = getCurrentTotalMistakes(
+        wordHistory,
+        val,
+        currentWordIndex,
+        targetWords
+      );
+      setTimeline(curr => reconcileTimelineErrors(curr, currentMistakes));
     }
 
+    // Auto-finish on last word in words or quote mode ONLY if the word is completely correct!
+    // If there is a mistake, allow the user to backspace and edit their mistake!
     if ((mode === 'words' || mode === 'quote') && currentWordIndex === targetWords.length - 1) {
-      if (val.length === targetWord.length) {
+      if (val === targetWord) {
         setTimeout(() => {
           finishTest();
         }, 10);
@@ -744,6 +962,7 @@ Consistency: ${stats.consistency || 82}%`;
       const isPastWord = wordIdx < currentWordIndex;
       const isCurrentWord = wordIdx === currentWordIndex;
       const typedForThisWord = isPastWord ? (wordHistory[wordIdx] || '') : (isCurrentWord ? currentInput : '');
+      const isWordHasError = isPastWord && typedForThisWord !== word;
 
       const wordChars = word.split('');
       const typedChars = typedForThisWord.split('');
@@ -755,7 +974,14 @@ Consistency: ${stats.consistency || 82}%`;
         <div
           key={`word-${wordIdx}`}
           ref={isCurrentWord ? activeWordRef : null}
-          className="typing-word"
+          onClick={(e) => {
+            if (isPastWord) {
+              e.stopPropagation();
+              jumpToWord(wordIdx);
+            }
+          }}
+          className={`typing-word ${isWordHasError ? 'word-has-error cursor-pointer' : isPastWord ? 'cursor-pointer hover:opacity-80' : ''}`}
+          title={isPastWord ? (isWordHasError ? 'Click to edit and fix mistake' : 'Click to edit word') : undefined}
         >
           {wordChars.map((targetChar, charIdx) => {
             const hasTyped = charIdx < typedChars.length;
@@ -765,6 +991,8 @@ Consistency: ${stats.consistency || 82}%`;
             let charClass = "char-default";
             if (hasTyped) {
               charClass = isCharCorrect ? "char-correct" : "char-incorrect";
+            } else if (isPastWord && isWordHasError) {
+              charClass = "char-missed";
             }
 
             return (
@@ -790,7 +1018,7 @@ Consistency: ${stats.consistency || 82}%`;
         </div>
       );
     });
-  }, [targetWords, currentWordIndex, wordHistory, currentInput, caretStyle]);
+  }, [targetWords, currentWordIndex, wordHistory, currentInput, caretStyle, jumpToWord]);
 
   return (
     <div className="flex flex-col items-center w-full px-1 sm:px-2 max-w-4xl mx-auto py-1 sm:py-2">
@@ -974,7 +1202,7 @@ Consistency: ${stats.consistency || 82}%`;
       {/* Heads-Up Display: Live Countdown Timer & Instant WPM / Accuracy Counters */}
       <div className="w-full flex items-center justify-between h-8 sm:h-9 px-2 mb-2 sm:mb-3 select-none font-mono">
         <div className="flex items-center gap-4 sm:gap-6">
-          <div className="text-2xl sm:text-3xl font-bold font-mono tracking-tight" style={{ color: activeTheme.primary }}>
+          <div className="text-2xl sm:text-3xl font-bold font-mono tracking-tight text-brand-primary" style={{ color: 'var(--primary-color)' }}>
             {mode === 'time' ? (
               isRunning ? Math.max(0, timeConfig - timeElapsed) : timeConfig
             ) : (
@@ -1038,7 +1266,7 @@ Consistency: ${stats.consistency || 82}%`;
           <div className="w-full grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 p-4 sm:p-6 rounded-2xl bg-black/20 border border-white/10 mb-4 sm:mb-6">
             <div className="flex flex-col items-start pl-1 sm:pl-2">
               <span className="text-[10px] sm:text-xs uppercase tracking-wider text-brand-text font-semibold">wpm</span>
-              <span className="text-4xl sm:text-5xl md:text-6xl font-black font-mono tracking-tight" style={{ color: activeTheme.primary }}>
+              <span className="text-4xl sm:text-5xl md:text-6xl font-black font-mono tracking-tight text-brand-primary" style={{ color: 'var(--primary-color)' }}>
                 {stats.wpm}
               </span>
               <span className="text-[10px] sm:text-xs text-brand-text mt-0.5 sm:mt-1">raw: {stats.rawWpm}</span>
@@ -1046,12 +1274,24 @@ Consistency: ${stats.consistency || 82}%`;
 
             <div className="flex flex-col items-start pl-1 sm:pl-2">
               <span className="text-[10px] sm:text-xs uppercase tracking-wider text-brand-text font-semibold">acc</span>
-              <span className="text-4xl sm:text-5xl md:text-6xl font-black font-mono tracking-tight" style={{ color: activeTheme.active }}>
+              <span className="text-4xl sm:text-5xl md:text-6xl font-black font-mono tracking-tight text-brand-active" style={{ color: 'var(--active-color)' }}>
                 {stats.accuracy}%
               </span>
-              <span className="text-[10px] sm:text-xs text-brand-text mt-0.5 sm:mt-1">
-                {stats.characters ? `${stats.characters.correct}/${stats.characters.incorrect}/${stats.characters.extra}/${stats.characters.missed}` : `${stats.mistakes} mistakes`}
-              </span>
+              <div className="flex flex-col items-start mt-0.5 sm:mt-1">
+                <span className="text-[11px] sm:text-xs font-semibold" style={{ color: stats.mistakes > 0 ? (activeTheme.error || 'var(--error-color)') : 'var(--text-color)' }}>
+                  {stats.mistakes === 0 ? '0 mistakes' : `${stats.mistakes} ${stats.mistakes === 1 ? 'mistake' : 'mistakes'}`}
+                </span>
+                <span className="text-[9px] sm:text-[10px] font-mono text-brand-text/75 mt-0.5" title="correct / incorrect / extra / missed">
+                  <span className="text-green-400 font-semibold">{stats.characters?.correct ?? stats.correctChars}</span>
+                  <span className="text-white/20">/</span>
+                  <span className="text-red-400 font-semibold">{stats.characters?.incorrect ?? 0}</span>
+                  <span className="text-white/20">/</span>
+                  <span className="text-amber-400 font-semibold">{stats.characters?.extra ?? 0}</span>
+                  <span className="text-white/20">/</span>
+                  <span className="text-purple-400 font-semibold">{stats.characters?.missed ?? 0}</span>
+                  <span className="ml-1 text-[8px] text-white/40 uppercase">cor/inc/ext/mis</span>
+                </span>
+              </div>
             </div>
 
             <div className="flex flex-col items-start pl-1 sm:pl-2">
