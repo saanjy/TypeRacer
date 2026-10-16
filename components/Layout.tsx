@@ -28,11 +28,11 @@ export const Layout: React.FC = () => {
     document.documentElement.style.setProperty('--error-color', themeDef.error);
     document.body.style.backgroundColor = themeDef.bg;
     document.body.style.color = themeDef.text;
-    // Dynamically update favicon with identical outline-free 'tr' logo in active theme primary color
+    // Dynamically update favicon with identical outline-free 'tr' logo in active theme primary color (with explicit fill='none' to prevent browser black fill)
     const favicon = document.querySelector<HTMLLinkElement>("link[rel*='icon']");
     if (favicon) {
       const pColor = encodeURIComponent(themeDef.primary);
-      favicon.href = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 28'%3E%3Cpath d='M 11 5 V 18.5 C 11 20.6 12.4 22 14.5 22 H 16' stroke='${pColor}' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='6.5' y1='11' x2='15.5' y2='11' stroke='${pColor}' stroke-width='2.8' stroke-linecap='round'/%3E%3Cpath d='M 20.5 11 V 22' stroke='${pColor}' stroke-width='2.8' stroke-linecap='round'/%3E%3Cpath d='M 20.5 14.5 C 21.8 11.8 24.2 11 27 11.5' stroke='${pColor}' stroke-width='2.8' stroke-linecap='round'/%3E%3C/svg%3E`;
+      favicon.href = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 28' fill='none'%3E%3Cpath d='M 11 5 V 18.5 C 11 20.6 12.4 22 14.5 22 H 16' fill='none' stroke='${pColor}' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='6.5' y1='11' x2='15.5' y2='11' stroke='${pColor}' stroke-width='2.8' stroke-linecap='round'/%3E%3Cpath d='M 20.5 11 V 22' fill='none' stroke='${pColor}' stroke-width='2.8' stroke-linecap='round'/%3E%3Cpath d='M 20.5 14.5 C 21.8 11.8 24.2 11 27 11.5' fill='none' stroke='${pColor}' stroke-width='2.8' stroke-linecap='round'/%3E%3C/svg%3E`;
     }
   }, [config.theme]);
 
