@@ -4,11 +4,6 @@ A minimal, high-performance typing test engine with real-time WPM graphing, erro
 
 ---
 
-### 📌 GitHub Description
-> A minimal, fast typing test platform with live WPM graphing, error reconciliation, mechanical switch audio, and dark themes. Built with React 19, TypeScript & Tailwind CSS.
-
----
-
 ## ✨ Features
 
 - **Real-Time Analytics**: Zero-latency live WPM, raw WPM, accuracy, and interactive Recharts progression graphs.
@@ -54,9 +49,3 @@ npm run build
 | `Space` | Submit word |
 | `Backspace` | Erase character / step back to previous word |
 | `Ctrl / Alt + Backspace` | Delete entire current word |
-
----
-
-## 📄 License
-
-MIT
